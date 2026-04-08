@@ -9,7 +9,7 @@ function getConfig() {
   const config = vscode.workspace.getConfiguration('claudePaste');
   return {
     imageTTL: config.get<number>('imageTTL', 3600),
-    imageDir: config.get<string>('imageDir', '~/.claude-paste/images'),
+    imageDir: config.get<string>('imageDir', '/tmp/claude-paste/images'),
     maxImageSize: config.get<number>('maxImageSize', 10485760),
     enableStatusBar: config.get<boolean>('enableStatusBar', true),
   };
@@ -49,24 +49,24 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(statusBarItem);
   }
 
-  // Main paste command
+  // Main paste command -- bound to Cmd+V / Ctrl+V in terminal
   const pasteCommand = vscode.commands.registerCommand('claudePaste.pasteImage', async () => {
     try {
-      // First check if clipboard has plain text (fast path for normal paste)
+      // Fast path: if clipboard has text, do a normal paste immediately
       const clipText = await vscode.env.clipboard.readText();
-
-      // If clipboard has substantial text that doesn't look like image data,
-      // just do normal paste immediately
-      if (clipText && clipText.length > 0 && !clipText.startsWith('data:image/')) {
+      if (clipText && clipText.length > 0) {
+        console.log('[claude-paste] Clipboard has text, normal paste');
         await vscode.commands.executeCommand('workbench.action.terminal.paste');
         return;
       }
 
-      // Clipboard is empty or has image data URI -- open paste target webview
+      // Clipboard text is empty -- likely an image. Open webview to auto-read.
+      console.log('[claude-paste] Clipboard text empty, checking for image');
       const result = await clipboardBridge.readImage();
 
       if (!result.hasImage || !result.base64) {
-        // User cancelled or no image -- do normal paste as fallback
+        // No image either -- do normal paste (might paste nothing, that's fine)
+        console.log('[claude-paste] No image found');
         await vscode.commands.executeCommand('workbench.action.terminal.paste');
         return;
       }

@@ -26,12 +26,12 @@ export class ImageWriterService {
     }
 
     const dir = this.config.imageDir;
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
 
     const filename = `${crypto.randomUUID()}.${format}`;
     const filePath = path.join(dir, filename);
 
-    await fs.promises.writeFile(filePath, buffer);
+    await fs.promises.writeFile(filePath, buffer, { mode: 0o644 });
 
     return filePath;
   }

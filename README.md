@@ -1,108 +1,109 @@
-# Claude Paste - VSCode Extension
+# Claude Paste
 
-Paste images from your Mac clipboard directly into Claude Code CLI conversations over SSH.
+**Paste images from your clipboard directly into Claude Code CLI conversations over SSH.**
 
-## Problem
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/humanrace-ai.claude-paste)](https://marketplace.visualstudio.com/items?itemName=humanrace-ai.claude-paste)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-When using Claude Code CLI over SSH in VSCode's integrated terminal, `Ctrl+V` / `Cmd+V` only pastes text. There's no way to paste screenshots or clipboard images into the conversation -- Claude Code supports image file paths, but getting a screenshot from your Mac clipboard onto the remote server requires manual `scp` or file upload steps.
+## The Problem
 
-## Solution
+When using Claude Code over SSH in VS Code's integrated terminal, there's no way to paste screenshots. Claude Code supports image file paths, but getting a clipboard image onto a remote server means manual `scp` or upload steps every time.
 
-**Claude Paste** intercepts image paste events in VSCode, saves the clipboard image to a temp file on the remote host, and injects the file path into the active terminal -- letting Claude Code's native image support pick it up seamlessly.
+## The Solution
 
-## How It Works
+**Claude Paste** captures clipboard images from your local machine, writes them to the remote host, and injects the file path into your terminal. Claude Code picks it up natively.
 
 ```
-Mac Clipboard (screenshot)
-    |
-    v
-VSCode Extension (intercepts Cmd+V in terminal)
-    |
-    v
-Decode image data from clipboard API
-    |
-    v
-Write to temp file on remote host (~/.claude-paste/images/<timestamp>.png)
-    |
-    v
-Inject file path into active terminal input
-    |
-    v
-Claude Code CLI reads the image natively
+Clipboard (screenshot) --> VS Code Extension --> Remote file --> Terminal path --> Claude Code reads it
 ```
+
+One paste. That's it.
 
 ## Features
 
-- **Cmd+V / Ctrl+V image paste** in VSCode integrated terminal
-- **SSH-aware** -- works in Remote-SSH sessions, writes to remote filesystem
-- **Auto-cleanup** -- configurable TTL for temp images (default: 1 hour)
-- **Format support** -- PNG, JPEG, GIF, WebP from clipboard
-- **Non-destructive** -- text paste behavior unchanged when clipboard has no image
-- **Status bar indicator** -- shows when an image is on clipboard and ready to paste
-
-## Architecture (SPARC)
-
-### S - Specification
-- VSCode extension activated on terminal focus
-- Intercepts paste keybinding when clipboard contains image data
-- Writes image to `~/.claude-paste/images/` with UUID filename
-- Injects absolute path into terminal stdin
-- Cleanup daemon removes files older than TTL
-
-### P - Pseudocode
-See `docs/pseudocode.md`
-
-### A - Architecture
-See `docs/architecture.md`
-
-### R - Refinement
-- TDD with vitest
-- Integration tests against mock terminal API
-- E2E test with actual clipboard data
-
-### C - Completion
-- Extension published to VS Code Marketplace
-- Works with both local and Remote-SSH terminals
-
-## Requirements
-
-- VSCode 1.85+
-- Claude Code CLI installed on target host
-- macOS client (clipboard source)
-- Node.js 18+ (for extension development)
+- **Cmd+V / Ctrl+V** in the integrated terminal -- same shortcut you already use
+- **SSH-native** -- works seamlessly in Remote-SSH sessions
+- **Auto-cleanup** -- temp images expire after 1 hour (configurable)
+- **Format support** -- PNG, JPEG, GIF, WebP
+- **Zero interference** -- text paste works exactly as before
 
 ## Installation
 
-```bash
-# From marketplace (when published)
-code --install-extension humanrace-ai.claude-paste
+### From VS Code Marketplace
 
-# From source
-cd claude-paste-extension
-npm install
-npm run compile
-# Press F5 in VSCode to launch Extension Development Host
+Search for **"Claude Paste"** in the Extensions panel, or:
+
+```bash
+code --install-extension humanrace-ai.claude-paste
 ```
+
+### From VSIX
+
+```bash
+code --install-extension claude-paste-0.1.0.vsix
+```
+
+## Usage
+
+1. Copy a screenshot or image to your clipboard
+2. Focus the VS Code integrated terminal (where Claude Code is running)
+3. Press **Cmd+V** (Mac) or **Ctrl+V** (Windows/Linux)
+4. A paste target appears briefly -- press **Cmd+V** again to capture the image
+5. The image file path is injected into your terminal automatically
+
+Claude Code reads the image and responds with full visual context.
 
 ## Configuration
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `claudePaste.imageTTL` | `3600` | Seconds before temp images are cleaned up |
-| `claudePaste.imageDir` | `~/.claude-paste/images` | Directory for temp image storage |
+| `claudePaste.imageDir` | `/tmp/claude-paste/images` | Directory for temp image storage |
 | `claudePaste.maxImageSize` | `10485760` | Max image size in bytes (10MB) |
 | `claudePaste.enableStatusBar` | `true` | Show clipboard status in status bar |
+
+## How It Works
+
+The extension uses a **webview clipboard bridge** -- a pattern that solves a core limitation of VS Code's extension API (which can only read text from the clipboard, not images).
+
+When you paste in the terminal:
+1. If the clipboard has text, it pastes normally with zero delay
+2. If the clipboard is empty (typical when you've copied an image), the extension opens a lightweight webview
+3. The webview runs in your **local** VS Code renderer, giving it access to your Mac's clipboard even over SSH
+4. It captures the image data, sends it to the extension host on the remote server, and writes it as a temp file
+5. The file path is injected into the terminal and the webview closes
+
+This approach works because VS Code's webviews always run locally, regardless of whether you're connected via Remote-SSH. The image data is transferred through VS Code's built-in webview message passing.
+
+## Requirements
+
+- VS Code 1.85+
+- macOS, Windows, or Linux client
+- Works with any remote host (SSH, WSL, Containers)
 
 ## Development
 
 ```bash
+git clone https://github.com/humanrace-ai/claude-paste.git
+cd claude-paste
 npm install
-npm run test        # Run TDD test suite
-npm run compile     # Build extension
-npm run lint        # ESLint
+npm run test        # Run test suite
+npm run compile     # Build
 npm run package     # Create .vsix
 ```
 
 ## License
 
-MIT
+MIT -- see [LICENSE](LICENSE) for details.
+
+---
+
+<p align="center">
+  <br>
+  Built by <a href="https://humanrace.ai"><strong>Human Race AI</strong></a>
+  <br>
+  <em>AI infrastructure for teams that ship</em>
+  <br>
+  <br>
+  <a href="https://humanrace.ai">humanrace.ai</a>
+</p>

@@ -5,6 +5,11 @@
   "version": "0.1.0",
   "publisher": "humanrace-ai",
   "license": "MIT",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/humanrace-ai/claude-paste"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -37,8 +42,8 @@
     "keybindings": [
       {
         "command": "claudePaste.pasteImage",
-        "key": "ctrl+shift+v",
-        "mac": "cmd+shift+v",
+        "key": "ctrl+v",
+        "mac": "cmd+v",
         "when": "terminalFocus"
       }
     ],
@@ -52,7 +57,7 @@
         },
         "claudePaste.imageDir": {
           "type": "string",
-          "default": "~/.claude-paste/images",
+          "default": "/tmp/claude-paste/images",
           "description": "Directory for temp image storage"
         },
         "claudePaste.maxImageSize": {
