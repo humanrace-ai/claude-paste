@@ -9,8 +9,9 @@
 +----------------------------------+
 |                                  |
 |  +-----------+  +--------------+ |
-|  | Clipboard |  | StatusBar    | |
-|  | Service   |  | Controller   | |
+|  | Webview   |  | StatusBar    | |
+|  | Clipboard |  | Item         | |
+|  | Bridge    |  |              | |
 |  +-----------+  +--------------+ |
 |       |                          |
 |  +-----------+  +--------------+ |
@@ -33,17 +34,17 @@
 
 ## Services
 
-### ClipboardService
-- Reads clipboard via VSCode `env.clipboard` API
-- Detects whether clipboard contains image data (base64-encoded)
-- Falls back to `pbpaste` / `xclip` for binary image data
-- Returns `ClipboardContent` with type discriminator
+### WebviewClipboardBridge
+- Opens a webview panel to read clipboard image data
+- Tries `navigator.clipboard.read()` first (auto-read, no gesture needed)
+- Falls back to a paste-target UI if permissions block auto-read
+- Webview always runs **locally** (renderer side), even over Remote-SSH
+- Image data is sent to extension host via VSCode message passing
 
 ### ImageWriterService
 - Receives raw image buffer
 - Generates UUID filename with correct extension
-- Writes to configured temp directory (`~/.claude-paste/images/`)
-- Resolves `~` to actual home directory
+- Writes to configured temp directory (`/tmp/claude-paste/images/`)
 - Returns absolute file path
 
 ### TerminalInjectorService
@@ -58,29 +59,32 @@
 - Deletes expired files
 - Logs cleanup activity
 
-### StatusBarController
-- Shows clipboard image status in VSCode status bar
-- Updates on focus change and clipboard activity
-- Click triggers manual paste command
+### ClipboardService (legacy)
+- Detects base64/data URI image content in clipboard text
+- Used by unit tests and smoke tests
+- Not used in production flow (WebviewClipboardBridge handles real clipboard)
 
 ## Data Flow
 
 1. User copies screenshot on Mac (Cmd+Shift+4, etc.)
 2. User focuses VSCode terminal with Claude Code running
-3. User presses Cmd+Shift+V (keybinding)
-4. Extension intercepts -- ClipboardService checks for image
-5. If image found: ImageWriter saves to temp file
-6. TerminalInjector sends file path to terminal
-7. Claude Code CLI picks up the image path on next message
-8. CleanupService eventually removes the temp file
+3. User presses Cmd+V (Mac) or Ctrl+V
+4. Extension checks clipboard text -- if text found, normal paste
+5. If clipboard text is empty (image copied), webview opens
+6. Webview reads clipboard image via browser API (runs locally)
+7. Image data sent to extension host (remote) via message passing
+8. ImageWriter saves to `/tmp/claude-paste/images/<uuid>.png`
+9. TerminalInjector sends file path to terminal
+10. Claude Code CLI reads the image natively
+11. CleanupService removes temp file after TTL
 
-## SSH Considerations
+## SSH Architecture
 
-- In Remote-SSH sessions, the extension runs on the **remote host**
-- Clipboard data travels through VSCode's clipboard API bridge
-- Image files are written to the **remote** filesystem
+- Extension host runs on the **remote server** (installed via Remote-SSH)
+- Webview runs in the **local renderer** (your Mac) -- this is how clipboard access works
+- Image data transfers through VSCode's built-in webview message bridge
+- Files are written to the **remote** filesystem where Claude Code runs
 - Paths injected are **remote** absolute paths
-- This is the correct behavior -- Claude Code runs on the remote host
 
 ## Configuration
 

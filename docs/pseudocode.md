@@ -4,56 +4,72 @@
 
 ```
 FUNCTION handlePaste():
-    content = clipboardService.read()
+    clipText = await clipboard.readText()
 
-    IF content.type == "text":
-        // Let VSCode handle normal text paste
+    IF clipText is not empty:
+        // Normal text on clipboard -- do standard paste
         executeCommand("workbench.action.terminal.paste")
         RETURN
 
-    IF content.type == "image":
-        IF content.size > config.maxImageSize:
-            showError("Image too large")
-            RETURN
+    // Clipboard text empty -- likely an image
+    result = await webviewBridge.readImage()
 
-        filePath = imageWriter.write(content.buffer, content.format)
-        terminalInjector.inject(filePath)
-        showInfo("Image pasted: " + basename(filePath))
+    IF NOT result.hasImage:
+        // No image either -- fall through to normal paste
+        executeCommand("workbench.action.terminal.paste")
+        RETURN
+
+    buffer = Buffer.from(result.base64, 'base64')
+
+    IF buffer.length > config.maxImageSize:
+        showWarning("Image too large")
+        RETURN
+
+    format = mimeTypeToFormat(result.mimeType)  // image/png -> png
+    filePath = imageWriter.write(buffer, format)
+    terminalInjector.inject(filePath)
+    showInfo("Image saved: " + basename(filePath))
 ```
 
-## Clipboard Detection
+## Webview Clipboard Bridge
 
 ```
-FUNCTION read() -> ClipboardContent:
-    // VSCode clipboard API only returns text
-    text = await clipboard.readText()
+FUNCTION readImage() -> WebviewClipboardResult:
+    panel = createWebviewPanel("Claude Paste")
+    timeout = setTimeout(10s, () => resolve({ hasImage: false }))
 
-    // Check if text is a base64-encoded image (from some clipboard managers)
-    IF isBase64Image(text):
-        buffer = decodeBase64(text)
-        format = detectFormat(buffer)
-        RETURN { type: "image", buffer, format, size: buffer.length }
+    // Webview runs LOCALLY (renderer), tries auto-read first:
+    TRY:
+        items = await navigator.clipboard.read()
+        FOR item IN items:
+            IF item.type starts with "image/":
+                blob = item.getType(type)
+                base64 = blobToBase64(blob)
+                postMessage({ type: "imageData", base64, mimeType })
+                RETURN
+        postMessage({ type: "noImage" })
 
-    // Try native clipboard binary read
-    IF platform == "darwin":
-        buffer = exec("osascript -e 'clipboard info'")
-        IF hasImageType(buffer):
-            imageData = exec("osascript -e 'read clipboard as PNG'")
-            RETURN { type: "image", buffer: imageData, format: "png", size: imageData.length }
-
-    // For Remote-SSH: try reading from VSCode's data transfer API
-    // Falls back to text paste
-    RETURN { type: "text", text }
+    CATCH permissionError:
+        // Auto-read blocked -- show paste-target UI
+        showPasteZone()
+        // User presses Cmd+V in the webview (user gesture = permissions)
+        pasteZone.addEventListener("paste", (e) => {
+            FOR item IN e.clipboardData.items:
+                IF item.type starts with "image/":
+                    blob = item.getAsFile()
+                    base64 = blobToBase64(blob)
+                    postMessage({ type: "imageData", base64, mimeType })
+        })
 ```
 
 ## Image Writer
 
 ```
 FUNCTION write(buffer: Buffer, format: string) -> string:
-    dir = resolveHome(config.imageDir)
-    ensureDir(dir)
+    dir = config.imageDir  // /tmp/claude-paste/images
+    mkdirSync(dir, { recursive: true })
 
-    filename = uuid() + "." + format
+    filename = randomUUID() + "." + format
     filePath = join(dir, filename)
 
     writeFileSync(filePath, buffer)
@@ -85,8 +101,7 @@ FUNCTION inject(filePath: string):
     terminal = window.activeTerminal
 
     IF NOT terminal:
-        showError("No active terminal")
-        RETURN
+        THROW "No active terminal"
 
     // Send path without newline -- user decides when to submit
     terminal.sendText(filePath, false)
