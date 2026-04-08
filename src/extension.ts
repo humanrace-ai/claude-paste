@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { ClipboardService } from './services/clipboard-service';
 import { ImageWriterService } from './services/image-writer';
 import { TerminalInjectorService, TerminalProvider } from './services/terminal-injector';
 import { CleanupService } from './services/cleanup-service';
+import { WebviewClipboardBridge } from './services/webview-clipboard-bridge';
 
 function getConfig() {
   const config = vscode.workspace.getConfiguration('claudePaste');
@@ -18,9 +18,6 @@ function getConfig() {
 export function activate(context: vscode.ExtensionContext) {
   const cfg = getConfig();
 
-  // Initialize services
-  const clipboardService = new ClipboardService({ maxImageSize: cfg.maxImageSize });
-
   const imageWriter = new ImageWriterService({
     imageDir: cfg.imageDir,
     maxImageSize: cfg.maxImageSize,
@@ -34,6 +31,8 @@ export function activate(context: vscode.ExtensionContext) {
   };
   const terminalInjector = new TerminalInjectorService(terminalProvider);
 
+  const clipboardBridge = new WebviewClipboardBridge(context);
+
   const cleanupService = new CleanupService(
     { imageDir: cfg.imageDir, imageTTL: cfg.imageTTL },
     { info: (msg) => console.log(`[claude-paste] ${msg}`), error: (msg) => console.error(`[claude-paste] ${msg}`) }
@@ -41,42 +40,53 @@ export function activate(context: vscode.ExtensionContext) {
   cleanupService.start();
 
   // Status bar
-  let statusBarItem: vscode.StatusBarItem | undefined;
   if (cfg.enableStatusBar) {
-    statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBarItem.command = 'claudePaste.pasteImage';
-    statusBarItem.text = '$(file-media) Paste';
-    statusBarItem.tooltip = 'Claude Paste: Paste clipboard image into terminal';
+    statusBarItem.text = '$(file-media) Claude Paste';
+    statusBarItem.tooltip = 'Paste clipboard image into terminal for Claude Code';
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
   }
 
-  // Main paste command
+  // Main paste command -- intercepts Ctrl+V / Cmd+V when terminal is focused
   const pasteCommand = vscode.commands.registerCommand('claudePaste.pasteImage', async () => {
     try {
-      const content = await clipboardService.read();
+      // Use webview bridge to read binary clipboard (works over SSH)
+      const result = await clipboardBridge.readImage();
 
-      if (content.type === 'text') {
-        // No image on clipboard -- fall through to normal paste
+      if (!result.hasImage || !result.base64) {
+        // No image -- fall through to normal terminal paste
         await vscode.commands.executeCommand('workbench.action.terminal.paste');
         return;
       }
 
-      if (!content.buffer || !content.format) {
-        vscode.window.showWarningMessage('Claude Paste: Could not read image from clipboard');
+      const buffer = Buffer.from(result.base64, 'base64');
+
+      if (buffer.length > cfg.maxImageSize) {
+        vscode.window.showWarningMessage(`Claude Paste: Image too large (${(buffer.length / 1048576).toFixed(1)}MB)`);
         return;
       }
 
-      const filePath = await imageWriter.write(content.buffer, content.format);
+      // Determine format from mime type
+      const formatMap: Record<string, string> = {
+        'image/png': 'png',
+        'image/jpeg': 'jpeg',
+        'image/gif': 'gif',
+        'image/webp': 'webp',
+      };
+      const format = formatMap[result.mimeType || ''] || 'png';
+
+      const filePath = await imageWriter.write(buffer, format);
       terminalInjector.inject(filePath);
 
-      vscode.window.showInformationMessage(`Claude Paste: Image saved as ${path.basename(filePath)}`);
+      vscode.window.showInformationMessage(`Claude Paste: ${path.basename(filePath)}`);
     } catch (err: any) {
       vscode.window.showErrorMessage(`Claude Paste: ${err.message}`);
     }
   });
 
-  // Cleanup command
+  // Manual cleanup command
   const cleanupCommand = vscode.commands.registerCommand('claudePaste.cleanupImages', async () => {
     try {
       const count = await cleanupService.cleanup();
@@ -88,6 +98,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(pasteCommand, cleanupCommand);
   context.subscriptions.push({ dispose: () => cleanupService.stop() });
+
+  console.log('[claude-paste] Extension activated');
 }
 
 export function deactivate() {
