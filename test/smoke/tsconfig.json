@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "paths": {
+      "vscode": ["../mocks/vscode.ts"]
+    },
+    "baseUrl": "."
+  },
+  "include": ["./**/*.ts", "../mocks/**/*.ts", "../../src/**/*.ts"]
+}
