@@ -49,14 +49,24 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(statusBarItem);
   }
 
-  // Main paste command -- intercepts Ctrl+V / Cmd+V when terminal is focused
+  // Main paste command
   const pasteCommand = vscode.commands.registerCommand('claudePaste.pasteImage', async () => {
     try {
-      // Use webview bridge to read binary clipboard (works over SSH)
+      // First check if clipboard has plain text (fast path for normal paste)
+      const clipText = await vscode.env.clipboard.readText();
+
+      // If clipboard has substantial text that doesn't look like image data,
+      // just do normal paste immediately
+      if (clipText && clipText.length > 0 && !clipText.startsWith('data:image/')) {
+        await vscode.commands.executeCommand('workbench.action.terminal.paste');
+        return;
+      }
+
+      // Clipboard is empty or has image data URI -- open paste target webview
       const result = await clipboardBridge.readImage();
 
       if (!result.hasImage || !result.base64) {
-        // No image -- fall through to normal terminal paste
+        // User cancelled or no image -- do normal paste as fallback
         await vscode.commands.executeCommand('workbench.action.terminal.paste');
         return;
       }
@@ -64,11 +74,12 @@ export function activate(context: vscode.ExtensionContext) {
       const buffer = Buffer.from(result.base64, 'base64');
 
       if (buffer.length > cfg.maxImageSize) {
-        vscode.window.showWarningMessage(`Claude Paste: Image too large (${(buffer.length / 1048576).toFixed(1)}MB)`);
+        vscode.window.showWarningMessage(
+          `Claude Paste: Image too large (${(buffer.length / 1048576).toFixed(1)}MB, max ${(cfg.maxImageSize / 1048576).toFixed(0)}MB)`
+        );
         return;
       }
 
-      // Determine format from mime type
       const formatMap: Record<string, string> = {
         'image/png': 'png',
         'image/jpeg': 'jpeg',
@@ -102,6 +113,4 @@ export function activate(context: vscode.ExtensionContext) {
   console.log('[claude-paste] Extension activated');
 }
 
-export function deactivate() {
-  // Cleanup handled by disposables
-}
+export function deactivate() {}

@@ -37,12 +37,6 @@
     "keybindings": [
       {
         "command": "claudePaste.pasteImage",
-        "key": "ctrl+v",
-        "mac": "cmd+v",
-        "when": "terminalFocus"
-      },
-      {
-        "command": "claudePaste.pasteImage",
         "key": "ctrl+shift+v",
         "mac": "cmd+shift+v",
         "when": "terminalFocus"
