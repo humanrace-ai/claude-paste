@@ -1,0 +1,95 @@
+{
+  "name": "claude-paste",
+  "displayName": "Claude Paste",
+  "description": "Paste images from Mac clipboard into Claude Code CLI conversations over SSH",
+  "version": "0.1.0",
+  "publisher": "humanrace-ai",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "clipboard",
+    "paste",
+    "image",
+    "ssh",
+    "terminal"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudePaste.pasteImage",
+        "title": "Claude Paste: Paste Image from Clipboard"
+      },
+      {
+        "command": "claudePaste.cleanupImages",
+        "title": "Claude Paste: Clean Up Temp Images"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "claudePaste.pasteImage",
+        "key": "ctrl+shift+v",
+        "mac": "cmd+shift+v",
+        "when": "terminalFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Claude Paste",
+      "properties": {
+        "claudePaste.imageTTL": {
+          "type": "number",
+          "default": 3600,
+          "description": "Seconds before temp images are cleaned up"
+        },
+        "claudePaste.imageDir": {
+          "type": "string",
+          "default": "~/.claude-paste/images",
+          "description": "Directory for temp image storage"
+        },
+        "claudePaste.maxImageSize": {
+          "type": "number",
+          "default": 10485760,
+          "description": "Max image size in bytes (default 10MB)"
+        },
+        "claudePaste.enableStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show clipboard image status in status bar"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "pretest": "npm run compile",
+    "package": "vsce package",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@types/uuid": "^9.0.7",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0",
+    "eslint": "^8.56.0",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "@vscode/vsce": "^2.22.0"
+  },
+  "dependencies": {
+    "uuid": "^9.0.0"
+  }
+}
