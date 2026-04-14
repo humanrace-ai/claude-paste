@@ -40,7 +40,7 @@ code --install-extension humanrace-ai.claude-paste
 ### From VSIX
 
 ```bash
-code --install-extension claude-paste-0.1.0.vsix
+code --install-extension claude-paste-image-0.2.0.vsix
 ```
 
 ## Usage

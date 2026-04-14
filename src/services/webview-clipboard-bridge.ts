@@ -1,16 +1,21 @@
 import * as vscode from 'vscode';
 
 export interface WebviewClipboardResult {
-  hasImage: boolean;
+  type: 'image' | 'text' | 'none';
   base64?: string;
   mimeType?: string;
+  text?: string;
 }
 
 /**
- * Opens a webview that reads clipboard image data. Tries
- * navigator.clipboard.read() first (no gesture needed).
- * Falls back to a focused paste zone if permissions block it.
- * Works over Remote-SSH because webviews run LOCAL.
+ * Opens a webview that reads the clipboard. Tries navigator.clipboard.read()
+ * first (no gesture needed). Falls back to a focused paste zone if permissions
+ * block it. Works over Remote-SSH because webviews run LOCAL.
+ *
+ * Reads BOTH image and text. The text recovery path exists because
+ * vscode.env.clipboard.readText() in the extension host occasionally returns
+ * empty even when text is on the clipboard (stuck Remote-SSH clipboard
+ * channel) -- the local webview can still see the real content.
  */
 export class WebviewClipboardBridge {
   private context: vscode.ExtensionContext;
@@ -19,7 +24,7 @@ export class WebviewClipboardBridge {
     this.context = context;
   }
 
-  readImage(): Promise<WebviewClipboardResult> {
+  readClipboard(): Promise<WebviewClipboardResult> {
     return new Promise((resolve) => {
       const panel = vscode.window.createWebviewPanel(
         'claudePasteTarget',
@@ -33,19 +38,21 @@ export class WebviewClipboardBridge {
 
       let resolved = false;
 
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          panel.dispose();
-          resolve({ hasImage: false });
-        }
-      }, 10000);
+      const finish = (result: WebviewClipboardResult) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timeout);
+        panel.dispose();
+        resolve(result);
+      };
+
+      const timeout = setTimeout(() => finish({ type: 'none' }), 10000);
 
       panel.onDidDispose(() => {
         clearTimeout(timeout);
         if (!resolved) {
           resolved = true;
-          resolve({ hasImage: false });
+          resolve({ type: 'none' });
         }
       });
 
@@ -53,29 +60,24 @@ export class WebviewClipboardBridge {
         (message: any) => {
           if (resolved) return;
 
-          if (message.type === 'imageData') {
-            resolved = true;
-            clearTimeout(timeout);
-            panel.dispose();
-            resolve({
-              hasImage: true,
-              base64: message.base64,
-              mimeType: message.mimeType,
-            });
-          } else if (message.type === 'noImage') {
-            resolved = true;
-            clearTimeout(timeout);
-            panel.dispose();
-            resolve({ hasImage: false });
-          } else if (message.type === 'needGesture') {
-            // Auto-read failed, webview shows paste UI -- just wait
-            console.log('[claude-paste] Auto-read failed, waiting for user paste');
-          } else if (message.type === 'error') {
-            console.error('[claude-paste] Webview error:', message.error);
-            resolved = true;
-            clearTimeout(timeout);
-            panel.dispose();
-            resolve({ hasImage: false });
+          switch (message.type) {
+            case 'imageData':
+              finish({ type: 'image', base64: message.base64, mimeType: message.mimeType });
+              break;
+            case 'textData':
+              finish({ type: 'text', text: message.text });
+              break;
+            case 'noContent':
+              finish({ type: 'none' });
+              break;
+            case 'needGesture':
+              // Auto-read failed, webview shows paste UI -- just wait
+              console.log('[claude-paste] Auto-read failed, waiting for user paste');
+              break;
+            case 'error':
+              console.error('[claude-paste] Webview error:', message.error);
+              finish({ type: 'none' });
+              break;
           }
         },
         undefined,
@@ -163,6 +165,9 @@ function getAutoReadHtml(): string {
   async function tryAutoRead() {
     try {
       const items = await navigator.clipboard.read();
+
+      // Image first -- screenshots / image copies are the common reason
+      // we end up in the webview path.
       for (const item of items) {
         for (const type of item.types) {
           if (type.startsWith('image/')) {
@@ -173,8 +178,21 @@ function getAutoReadHtml(): string {
           }
         }
       }
-      // Clipboard has no image
-      vscode.postMessage({ type: 'noImage' });
+
+      // No image -- recover text the extension host failed to see.
+      for (const item of items) {
+        for (const type of item.types) {
+          if (type === 'text/plain') {
+            const blob = await item.getType(type);
+            const text = await blob.text();
+            vscode.postMessage({ type: 'textData', text: text });
+            autoStatus.textContent = 'Got text!';
+            return;
+          }
+        }
+      }
+
+      vscode.postMessage({ type: 'noContent' });
     } catch (err) {
       // Permission denied -- show paste UI
       showPasteUI();
@@ -189,40 +207,49 @@ function getAutoReadHtml(): string {
 
     pasteZone.addEventListener('paste', (e) => {
       e.preventDefault();
-      const items = e.clipboardData?.items;
-      if (!items) {
+      const cd = e.clipboardData;
+      if (!cd) {
         status.textContent = 'No clipboard data';
-        vscode.postMessage({ type: 'noImage' });
+        vscode.postMessage({ type: 'noContent' });
         return;
       }
 
-      let foundImage = false;
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          foundImage = true;
-          const blob = item.getAsFile();
-          if (!blob) {
-            vscode.postMessage({ type: 'noImage' });
+      // Image first
+      const items = cd.items;
+      if (items) {
+        for (const item of items) {
+          if (item.type.startsWith('image/')) {
+            const blob = item.getAsFile();
+            if (!blob) {
+              vscode.postMessage({ type: 'noContent' });
+              return;
+            }
+            pasteZone.classList.add('success');
+            status.textContent = 'Captured! Sending...';
+            sendImage(blob, item.type);
             return;
           }
-          pasteZone.classList.add('success');
-          status.textContent = 'Captured! Sending...';
-          sendImage(blob, item.type);
-          break;
         }
       }
 
-      if (!foundImage) {
-        status.textContent = 'No image in clipboard';
-        vscode.postMessage({ type: 'noImage' });
+      // Then text
+      const textData = cd.getData('text/plain');
+      if (textData) {
+        pasteZone.classList.add('success');
+        status.textContent = 'Captured text! Sending...';
+        vscode.postMessage({ type: 'textData', text: textData });
+        return;
       }
+
+      status.textContent = 'No content in clipboard';
+      vscode.postMessage({ type: 'noContent' });
     });
   }
 
   // Escape to cancel
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      vscode.postMessage({ type: 'noImage' });
+      vscode.postMessage({ type: 'noContent' });
     }
   });
 

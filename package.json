@@ -1,9 +1,9 @@
 {
-  "name": "claude-paste",
+  "name": "claude-paste-image",
   "displayName": "Claude Paste",
   "description": "Paste images from Mac clipboard into Claude Code CLI conversations over SSH",
-  "version": "0.1.0",
-  "publisher": "humanrace-ai",
+  "version": "0.2.0",
+  "publisher": "TheHumanRace",
   "license": "MIT",
   "icon": "icon.png",
   "repository": {
