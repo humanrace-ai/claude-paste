@@ -1,4 +1,4 @@
-This extentiuon has been updated as of April 15/26. Grab the newest version at: https://open-vsx.org/extension/TheHumanRace/claude-paste-image
+This extension has been updated as of April 15/26. Grab the newest version at: https://open-vsx.org/extension/TheHumanRace/claude-paste-image
 
 # Claude Paste
 
