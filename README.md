@@ -1,3 +1,5 @@
+This extentiuon has been updated as of April 15/26. Grab the newest version at: https://open-vsx.org/extension/TheHumanRace/claude-paste-image
+
 # Claude Paste
 
 **Paste images from your clipboard directly into Claude Code CLI conversations over SSH.**
